@@ -1515,7 +1515,7 @@ class _AttendanceScreenState
             icon:
                 Icons.event_busy_rounded,
             title:
-                'No attendance record',
+                'No attendance shahabas',
             message:
                 'No attendance has been recorded for ${_formattedDate()}.',
           )
