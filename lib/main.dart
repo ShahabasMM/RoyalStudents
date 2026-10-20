@@ -13,6 +13,10 @@ import 'screens/library_screen.dart';
 import 'screens/syllabus_screen.dart';
 import 'screens/leave_apply_screen.dart';
 import 'screens/online_class_screen.dart';
+import 'screens/internal_marks_screen.dart';
+import 'screens/results_screen.dart';
+import 'screens/addon_courses_screen.dart';
+import 'screens/fee_stats_screen.dart';
 import 'theme/app_theme.dart';
 import 'screens/profile_screen.dart';
 import 'screens/splash_screen.dart';
@@ -84,6 +88,10 @@ class RoyalCollegeApp extends StatelessWidget {
         '/syllabus': (_) => const SyllabusScreen(),
         '/leave': (_) => const LeaveApplyScreen(),
         '/online-class': (_) => const OnlineClassScreen(),
+        '/internal-marks': (_) => const InternalMarksScreen(),
+        '/results': (_) => const ResultsScreen(),
+        '/addon-courses': (_) => const AddonCoursesScreen(),
+        '/fee-stats': (_) => const FeeStatsScreen(),
         '/profile': (_) => const ProfileScreen(),
       },
     );

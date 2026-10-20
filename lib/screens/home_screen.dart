@@ -22,6 +22,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _avatarVersion = 0;
 
+  String _avatarUrl = '';
+
   Timer? _greetingTimer;
 
   @override
@@ -61,6 +63,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadStudent() async {
     try {
       final profile = await StudentDataService.currentStudent();
+      final avatarUrl = await StudentDataService.resolveAvatarUrl(
+        profile.avatarUrl,
+        studentId: profile.id,
+      );
 
       if (!mounted) return;
 
@@ -70,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         student = profile;
+        _avatarUrl = avatarUrl;
         _avatarVersion++;
       });
     } catch (e) {
@@ -120,6 +127,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
             try {
               final refreshed = await StudentDataService.currentStudent();
+              final avatarUrl = await StudentDataService.resolveAvatarUrl(
+                refreshed.avatarUrl,
+                studentId: refreshed.id,
+              );
 
               if (!mounted) return;
 
@@ -129,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               setState(() {
                 student = refreshed;
+                _avatarUrl = avatarUrl;
                 _avatarVersion++;
               });
             } catch (e) {
@@ -200,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openWebsite() async {
     final Uri url = Uri.parse(
-      'https://www.myroyalcollege.com/',
+      'https://www.royalcollege.net',
     );
 
     if (!await launchUrl(
@@ -244,8 +256,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // =============================================================
   // AVATAR URL
   // =============================================================
-
-  String get _avatarUrl => '';
 
   // =============================================================
   // BUILD
@@ -338,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             IconButton(
-              onPressed: () {},
+              onPressed: () => _open(context, '/announcements'),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(
                 minWidth: 40,
@@ -506,7 +516,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     child: const Text(
-                      '8 Modules',
+                      '11 Modules',
                       style: TextStyle(
                         color: AppTheme.muted,
                         fontSize: 11,
@@ -532,13 +542,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Track your attendance',
                     icon: Icons.fact_check_rounded,
                     iconColor: const Color(
-                      0xFF2563EB,
+                      0xFF1746A2,
                     ),
                     backgroundColor: const Color(
-                      0xFFEAF2FF,
+                      0xFF1746A2,
                     ),
                     borderColor: const Color(
-                      0xFFBFDBFE,
+                      0xFF10377F,
                     ),
                     onTap: () => _open(
                       context,
@@ -550,13 +560,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'View daily schedule',
                     icon: Icons.calendar_month_rounded,
                     iconColor: const Color(
-                      0xFF7C3AED,
+                      0xFF5B21B6,
                     ),
                     backgroundColor: const Color(
-                      0xFFF1E9FF,
+                      0xFF5B21B6,
                     ),
                     borderColor: const Color(
-                      0xFFDDD0FF,
+                      0xFF451A8A,
                     ),
                     onTap: () => _open(
                       context,
@@ -568,13 +578,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Course curriculum',
                     icon: Icons.menu_book_rounded,
                     iconColor: const Color(
-                      0xFFB45309,
+                      0xFF8A3C0A,
                     ),
                     backgroundColor: const Color(
-                      0xFFFFF3DC,
+                      0xFF8A3C0A,
                     ),
                     borderColor: const Color(
-                      0xFFF6DFA9,
+                      0xFF672C08,
                     ),
                     onTap: () => _open(
                       context,
@@ -586,13 +596,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Books & resources',
                     icon: Icons.local_library_rounded,
                     iconColor: const Color(
-                      0xFF059669,
+                      0xFF046C4E,
                     ),
                     backgroundColor: const Color(
-                      0xFFE7F8F1,
+                      0xFF046C4E,
                     ),
                     borderColor: const Color(
-                      0xFFBCE8D5,
+                      0xFF034F39,
                     ),
                     onTap: () => _open(
                       context,
@@ -604,13 +614,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Ask your questions',
                     icon: Icons.question_answer_rounded,
                     iconColor: const Color(
-                      0xFFDB2777,
+                      0xFF9D174D,
                     ),
                     backgroundColor: const Color(
-                      0xFFFFEAF4,
+                      0xFF9D174D,
                     ),
                     borderColor: const Color(
-                      0xFFFBCFE3,
+                      0xFF741039,
                     ),
                     onTap: () => _open(
                       context,
@@ -622,13 +632,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Latest updates',
                     icon: Icons.campaign_rounded,
                     iconColor: const Color(
-                      0xFFBE3A3A,
+                      0xFF8E2727,
                     ),
                     backgroundColor: const Color(
-                      0xFFFFEEEE,
+                      0xFF8E2727,
                     ),
                     borderColor: const Color(
-                      0xFFF5C2C2,
+                      0xFF6E1C1C,
                     ),
                     onTap: () => _open(
                       context,
@@ -640,13 +650,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Request your leave',
                     icon: Icons.event_note_rounded,
                     iconColor: const Color(
-                      0xFF0891B2,
+                      0xFF0E667A,
                     ),
                     backgroundColor: const Color(
-                      0xFFE5F8FB,
+                      0xFF0E667A,
                     ),
                     borderColor: const Color(
-                      0xFFBCEBF2,
+                      0xFF094A59,
                     ),
                     onTap: () => _open(
                       context,
@@ -658,18 +668,54 @@ class _HomeScreenState extends State<HomeScreen> {
                     subtitle: 'Join virtual classes',
                     icon: Icons.video_camera_front_rounded,
                     iconColor: const Color(
-                      0xFF0F766E,
+                      0xFF0C5E57,
                     ),
                     backgroundColor: const Color(
-                      0xFFE5F7F4,
+                      0xFF0C5E57,
                     ),
                     borderColor: const Color(
-                      0xFFB9E9E2,
+                      0xFF084640,
                     ),
                     onTap: () => _open(
                       context,
                       '/online-class',
                     ),
+                  ),
+                  _dashboardCard(
+                    title: 'Internal Marks',
+                    subtitle: 'Subject-wise marks',
+                    icon: Icons.assessment_rounded,
+                    iconColor: const Color(0xFF103D70),
+                    backgroundColor: const Color(0xFF103D70),
+                    borderColor: const Color(0xFF0B2D52),
+                    onTap: () => _open(context, '/internal-marks'),
+                  ),
+                  _dashboardCard(
+                    title: 'Results',
+                    subtitle: 'Current semester grades',
+                    icon: Icons.workspace_premium_rounded,
+                    iconColor: const Color(0xFF45249B),
+                    backgroundColor: const Color(0xFF45249B),
+                    borderColor: const Color(0xFF341B73),
+                    onTap: () => _open(context, '/results'),
+                  ),
+                  _dashboardCard(
+                    title: 'Add on Courses',
+                    subtitle: 'Your assigned courses',
+                    icon: Icons.auto_stories_rounded,
+                    iconColor: const Color(0xFF17405F),
+                    backgroundColor: const Color(0xFF17405F),
+                    borderColor: const Color(0xFF102F47),
+                    onTap: () => _open(context, '/addon-courses'),
+                  ),
+                  _dashboardCard(
+                    title: 'Fee Stats',
+                    subtitle: 'Course & exam fee status',
+                    icon: Icons.receipt_long_rounded,
+                    iconColor: const Color(0xFFFFE8ED),
+                    backgroundColor: const Color(0xFF741C38),
+                    borderColor: const Color(0xFF551329),
+                    onTap: () => _open(context, '/fee-stats'),
                   ),
                 ],
               ),
@@ -1220,9 +1266,7 @@ class _PressableDashboardCardState extends State<_PressableDashboardCard> {
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(
-                0xFF6B7280,
-              ),
+              color: const Color(0xFF344054),
               blurRadius: 0,
               offset: Offset(
                 0,
@@ -1238,9 +1282,7 @@ class _PressableDashboardCardState extends State<_PressableDashboardCard> {
               16,
             ),
             border: Border.all(
-              color: const Color(
-                0xFF1F2937,
-              ),
+              color: Colors.white.withValues(alpha: 0.55),
               width: 1.4,
             ),
           ),
@@ -1261,7 +1303,7 @@ class _PressableDashboardCardState extends State<_PressableDashboardCard> {
                       16,
                     ),
                     border: Border.all(
-                      color: widget.borderColor,
+                      color: const Color(0xFFE7EDF6),
                       width: 1.1,
                     ),
                   ),
@@ -1280,9 +1322,21 @@ class _PressableDashboardCardState extends State<_PressableDashboardCard> {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: AppTheme.navy,
+                    color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  widget.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFFE7EDF6),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],

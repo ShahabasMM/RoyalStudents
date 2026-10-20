@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class StudentProfile {
@@ -10,6 +12,7 @@ class StudentProfile {
   final int semester;
   final String status;
   final String avatarUrl;
+  final Map<String, dynamic> feeStructure;
 
   const StudentProfile({
     required this.id,
@@ -21,12 +24,14 @@ class StudentProfile {
     required this.semester,
     required this.status,
     required this.avatarUrl,
+    required this.feeStructure,
   });
 
   factory StudentProfile.fromMap(
     Map<String, dynamic> row,
   ) {
     final rawAvatar = row['avatar_url'];
+    final rawFeeStructure = row['fee_structure'];
 
     return StudentProfile(
       id: '${row['id'] ?? ''}',
@@ -35,29 +40,26 @@ class StudentProfile {
       admissionNo: '${row['admission_no'] ?? ''}',
       capId: '${row['cap_id'] ?? ''}',
       course: '${row['course'] ?? ''}',
-      semester:
-          int.tryParse('${row['semester'] ?? 1}') ?? 1,
+      semester: int.tryParse('${row['semester'] ?? 1}') ?? 1,
       status: '${row['status'] ?? ''}',
 
       // NULL / empty -> ''
-      avatarUrl:
-          rawAvatar == null
-              ? ''
-              : rawAvatar.toString().trim(),
+      avatarUrl: rawAvatar == null ? '' : rawAvatar.toString().trim(),
+      feeStructure: rawFeeStructure is Map
+          ? Map<String, dynamic>.from(rawFeeStructure)
+          : const {},
     );
   }
 }
 
 class StudentDataService {
-  static SupabaseClient get client =>
-      Supabase.instance.client;
+  static SupabaseClient get client => Supabase.instance.client;
 
   // ============================================================
   // CURRENT AUTH USER
   // ============================================================
 
-  static User? get currentUser =>
-      client.auth.currentUser;
+  static User? get currentUser => client.auth.currentUser;
 
   // ============================================================
   // CURRENT STUDENT
@@ -87,7 +89,8 @@ class StudentDataService {
           semester,
           status,
           auth_user_id,
-          avatar_url
+          avatar_url,
+          fee_structure
         ''')
         .eq(
           'auth_user_id',
@@ -110,8 +113,7 @@ class StudentDataService {
   // GET CURRENT STUDENT RAW ROW
   // ============================================================
 
-  static Future<Map<String, dynamic>>
-      currentStudentRow() async {
+  static Future<Map<String, dynamic>> currentStudentRow() async {
     final authUser = client.auth.currentUser;
 
     if (authUser == null) {
@@ -152,8 +154,9 @@ class StudentDataService {
   // ============================================================
 
   static Future<String> resolveAvatarUrl(
-    String? storedValue,
-  ) async {
+    String? storedValue, {
+    String? studentId,
+  }) async {
     final raw = storedValue?.trim() ?? '';
 
     if (raw.isEmpty) {
@@ -161,15 +164,17 @@ class StudentDataService {
     }
 
     // Already a real web URL.
-    if (raw.startsWith('https://') ||
-        raw.startsWith('http://')) {
+    if (raw.startsWith('https://') || raw.startsWith('http://')) {
       return raw;
     }
 
-    final user = client.auth.currentUser;
-    if (user == null) {
+    if (client.auth.currentUser == null) {
       return '';
     }
+
+    final profileId = studentId?.trim().isNotEmpty == true
+        ? studentId!.trim()
+        : (await currentStudent()).id;
 
     // Try the value itself as a storage path.
     try {
@@ -186,15 +191,13 @@ class StudentDataService {
       // If an old value only contains a filename/UUID, first try it
       // inside this student's folder.
       if (!storagePath.contains('/')) {
-        storagePath = '${user.id}/$storagePath';
+        storagePath = '$profileId/$storagePath';
       }
 
-      final url = client.storage
-          .from('profile-images')
-          .getPublicUrl(storagePath);
+      final url =
+          client.storage.from('student-profiles').getPublicUrl(storagePath);
 
-      if (url.startsWith('http://') ||
-          url.startsWith('https://')) {
+      if (url.startsWith('http://') || url.startsWith('https://')) {
         return url;
       }
     } catch (e) {
@@ -204,9 +207,8 @@ class StudentDataService {
     // Legacy-safe fallback:
     // Find the actual profile.* file in this student's folder.
     try {
-      final files = await client.storage
-          .from('profile-images')
-          .list(path: user.id);
+      final files =
+          await client.storage.from('student-profiles').list(path: profileId);
 
       final profileFile = files.cast<dynamic>().where((file) {
         final name = '${file.name}'.toLowerCase();
@@ -215,11 +217,9 @@ class StudentDataService {
 
       if (profileFile.isNotEmpty) {
         final name = '${profileFile.first.name}';
-        final path = '${user.id}/$name';
+        final path = '$profileId/$name';
 
-        return client.storage
-            .from('profile-images')
-            .getPublicUrl(path);
+        return client.storage.from('student-profiles').getPublicUrl(path);
       }
     } catch (e) {
       // No accessible image.
@@ -232,8 +232,80 @@ class StudentDataService {
   // UPDATE AVATAR URL
   // ============================================================
 
-  static Future<StudentProfile>
-      updateAvatarUrl(
+  static Future<StudentProfile> uploadStudentAvatar(
+    Uint8List imageBytes,
+  ) async {
+    final authUser = client.auth.currentUser;
+    if (authUser == null) {
+      throw Exception('Please login again.');
+    }
+    if (imageBytes.isEmpty) {
+      throw Exception('The selected image is empty. Choose another photo.');
+    }
+
+    final student = await currentStudent();
+    final objectPath = '${student.id}/profile.jpg';
+
+    await client.storage.from('student-profiles').uploadBinary(
+          objectPath,
+          imageBytes,
+          fileOptions: FileOptions(
+            cacheControl: '3600',
+            contentType: 'image/jpeg',
+            upsert: true,
+          ),
+        );
+
+    final publicUrl =
+        client.storage.from('student-profiles').getPublicUrl(objectPath);
+    final avatarUrl = '$publicUrl?v=${DateTime.now().millisecondsSinceEpoch}';
+
+    final updated = await client
+        .from('students')
+        .update({'avatar_url': avatarUrl})
+        .eq('auth_user_id', authUser.id)
+        .select('id')
+        .maybeSingle();
+
+    if (updated == null) {
+      throw Exception(
+          'Your profile photo could not be saved. Please try again.');
+    }
+
+    return currentStudent();
+  }
+
+  // ============================================================
+  // REMOVE STUDENT AVATAR
+  // ============================================================
+
+  static Future<StudentProfile> removeStudentAvatar() async {
+    final authUser = client.auth.currentUser;
+    if (authUser == null) {
+      throw Exception('Please login again.');
+    }
+
+    final student = await currentStudent();
+    final updated = await client
+        .from('students')
+        .update({'avatar_url': null})
+        .eq('auth_user_id', authUser.id)
+        .select('id')
+        .maybeSingle();
+
+    if (updated == null) {
+      throw Exception(
+          'Your profile photo could not be removed. Please try again.');
+    }
+
+    await client.storage
+        .from('student-profiles')
+        .remove(['${student.id}/profile.jpg']);
+
+    return currentStudent();
+  }
+
+  static Future<StudentProfile> updateAvatarUrl(
     String? avatarUrl,
   ) async {
     final authUser = client.auth.currentUser;
@@ -244,19 +316,12 @@ class StudentDataService {
       );
     }
 
-    final cleanUrl =
-        avatarUrl?.trim() ?? '';
+    final cleanUrl = avatarUrl?.trim() ?? '';
 
-    await client
-        .from('students')
-        .update({
+    await client.from('students').update({
       // Empty string should become NULL.
-      'avatar_url':
-          cleanUrl.isEmpty
-              ? null
-              : cleanUrl,
-    })
-        .eq(
+      'avatar_url': cleanUrl.isEmpty ? null : cleanUrl,
+    }).eq(
       'auth_user_id',
       authUser.id,
     );
@@ -273,48 +338,8 @@ class StudentDataService {
   // REMOVE AVATAR URL FROM DATABASE
   // ============================================================
 
-  static Future<StudentProfile>
-      removeAvatarUrl() async {
-    final authUser = client.auth.currentUser;
-
-    if (authUser == null) {
-      throw Exception(
-        'Please login again.',
-      );
-    }
-
-    await client
-        .from('students')
-        .update({
-      'avatar_url': null,
-    })
-        .eq(
-      'auth_user_id',
-      authUser.id,
-    );
-
-    // ----------------------------------------------------------
-    // VERIFY.
-    // If DB still contains old URL, throw error.
-    // ----------------------------------------------------------
-
-    final row =
-        await currentStudentRow();
-
-    final dbAvatar =
-        row['avatar_url'];
-
-    if (dbAvatar != null &&
-        dbAvatar
-            .toString()
-            .trim()
-            .isNotEmpty) {
-      throw Exception(
-        'Profile picture could not be removed from database.',
-      );
-    }
-
-    return currentStudent();
+  static Future<StudentProfile> removeAvatarUrl() async {
+    return removeStudentAvatar();
   }
 
   // ============================================================
@@ -325,15 +350,11 @@ class StudentDataService {
     String table, {
     int limit = 500,
   }) async {
-    final result = await client
-        .from(table)
-        .select('*')
-        .limit(limit);
+    final result = await client.from(table).select('*').limit(limit);
 
     return List<Map<String, dynamic>>.from(
       result.map(
-        (item) =>
-            Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item),
       ),
     );
   }
@@ -350,8 +371,7 @@ class StudentDataService {
     for (final key in keys) {
       final rawValue = row[key];
 
-      if (rawValue != null &&
-          '$rawValue'.trim().isNotEmpty) {
+      if (rawValue != null && '$rawValue'.trim().isNotEmpty) {
         return '$rawValue';
       }
     }
@@ -368,8 +388,7 @@ class StudentDataService {
     List<String> keys, [
     int fallback = 0,
   ]) {
-    final rawValue =
-        StudentDataService.value(
+    final rawValue = StudentDataService.value(
       row,
       keys,
     );
@@ -380,6 +399,15 @@ class StudentDataService {
         fallback;
   }
 
+  static String _subjectCode(Map<String, dynamic> row) {
+    final raw = row['syllabus_subjects'];
+    if (raw is Map) return '${raw['subject_code'] ?? ''}';
+    if (raw is List && raw.isNotEmpty && raw.first is Map) {
+      return '${raw.first['subject_code'] ?? ''}';
+    }
+    return '';
+  }
+
   // ============================================================
   // DATE
   // ============================================================
@@ -388,8 +416,7 @@ class StudentDataService {
     Map<String, dynamic> row,
     List<String> keys,
   ) {
-    final rawValue =
-        StudentDataService.value(
+    final rawValue = StudentDataService.value(
       row,
       keys,
     );
@@ -403,17 +430,14 @@ class StudentDataService {
   // ANNOUNCEMENTS
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      announcements() async {
-    final dataRows =
-        await StudentDataService.rows(
+  static Future<List<Map<String, dynamic>>> announcements() async {
+    final dataRows = await StudentDataService.rows(
       'announcements',
     );
 
     dataRows.sort(
       (a, b) {
-        final da =
-            StudentDataService.date(
+        final da = StudentDataService.date(
           a,
           [
             'published_at',
@@ -422,8 +446,7 @@ class StudentDataService {
           ],
         );
 
-        final db =
-            StudentDataService.date(
+        final db = StudentDataService.date(
           b,
           [
             'published_at',
@@ -432,8 +455,7 @@ class StudentDataService {
           ],
         );
 
-        return (db ?? DateTime(1970))
-            .compareTo(
+        return (db ?? DateTime(1970)).compareTo(
           da ?? DateTime(1970),
         );
       },
@@ -446,19 +468,16 @@ class StudentDataService {
   // TIMETABLE
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      timetable(
+  static Future<List<Map<String, dynamic>>> timetable(
     StudentProfile student,
   ) async {
-    final dataRows =
-        await StudentDataService.rows(
+    final dataRows = await StudentDataService.rows(
       'timetables',
     );
 
     return dataRows.where(
       (row) {
-        final rowCourse =
-            StudentDataService.value(
+        final rowCourse = StudentDataService.value(
           row,
           [
             'course',
@@ -467,8 +486,7 @@ class StudentDataService {
           ],
         ).trim();
 
-        final rowSemester =
-            StudentDataService.number(
+        final rowSemester = StudentDataService.number(
           row,
           [
             'semester',
@@ -477,20 +495,13 @@ class StudentDataService {
           0,
         );
 
-        final courseMatches =
-            rowCourse.isEmpty ||
-                rowCourse.toLowerCase() ==
-                    student.course
-                        .trim()
-                        .toLowerCase();
+        final courseMatches = rowCourse.isEmpty ||
+            rowCourse.toLowerCase() == student.course.trim().toLowerCase();
 
         final semesterMatches =
-            rowSemester == 0 ||
-                rowSemester ==
-                    student.semester;
+            rowSemester == 0 || rowSemester == student.semester;
 
-        return courseMatches &&
-            semesterMatches;
+        return courseMatches && semesterMatches;
       },
     ).toList();
   }
@@ -499,8 +510,7 @@ class StudentDataService {
   // SYLLABUS
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      syllabus(
+  static Future<List<Map<String, dynamic>>> syllabus(
     StudentProfile student,
   ) async {
     final courseResult = await client
@@ -516,8 +526,7 @@ class StudentDataService {
       return [];
     }
 
-    final courseId =
-        '${courseResult['id']}';
+    final courseId = '${courseResult['id']}';
 
     final result = await client
         .from('syllabus_subjects')
@@ -546,29 +555,188 @@ class StudentDataService {
 
     return List<Map<String, dynamic>>.from(
       result.map(
-        (item) =>
-            Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item),
       ),
     );
+  }
+
+  // ============================================================
+  // CURRENT STUDENT INTERNAL MARKS
+  // ============================================================
+
+  static Future<List<Map<String, dynamic>>> internalMarks(
+    StudentProfile student,
+  ) async {
+    if (student.id.trim().isEmpty) {
+      throw Exception('Student profile is missing. Please login again.');
+    }
+
+    final result = await client
+        .from('internal_marks')
+        .select('''
+          id,
+          student_id,
+          subject_id,
+          course,
+          semester,
+          assignment_mark,
+          seminar_mark,
+          test_paper_mark,
+          attendance_mark,
+          class_performance_mark,
+          viva_voce_mark,
+          report_mark,
+          open_ended_assignment_mark,
+          open_ended_seminar_mark,
+          open_ended_test_mark,
+          open_ended_mark,
+          internal_theory_mark,
+          internal_practical_mark,
+          total_mark,
+          mark,
+          created_at,
+          syllabus_subjects(subject_name, subject_code)
+        ''')
+        .eq('student_id', student.id)
+        .eq('course', student.course.trim())
+        .eq('semester', student.semester)
+        .order('created_at', ascending: false);
+
+    final rows = List<Map<String, dynamic>>.from(
+      result.map((row) => Map<String, dynamic>.from(row)),
+    );
+
+    rows.sort((a, b) => _subjectCode(a).compareTo(_subjectCode(b)));
+
+    return rows;
+  }
+
+  // ============================================================
+  // ADD ON COURSES ASSIGNED TO THE CURRENT STUDENT
+  // ============================================================
+
+  static Future<List<Map<String, dynamic>>> addonCourses() async {
+    final result = await client
+        .from('addon_courses')
+        .select('id, name, description, fee, duration, mode, created_at')
+        .order('name', ascending: true);
+
+    return List<Map<String, dynamic>>.from(
+      result.map((row) => Map<String, dynamic>.from(row)),
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> addonCourseEnrollments(
+    StudentProfile student,
+  ) async {
+    if (student.id.trim().isEmpty) {
+      throw Exception('Student profile is missing. Please login again.');
+    }
+
+    final result = await client.from('addon_course_enrollments').select('''
+          id,
+          addon_course_id,
+          created_at,
+          addon_courses(id, name, description, fee, duration, mode)
+        ''').eq('student_id', student.id).order('created_at', ascending: false);
+
+    return List<Map<String, dynamic>>.from(
+      result.map((row) => Map<String, dynamic>.from(row)),
+    );
+  }
+
+  static Future<void> enrollInAddonCourse(
+    StudentProfile student,
+    String addonCourseId,
+  ) async {
+    if (student.id.trim().isEmpty || addonCourseId.trim().isEmpty) {
+      throw Exception('Course information is incomplete.');
+    }
+
+    await client.from('addon_course_enrollments').insert({
+      'addon_course_id': addonCourseId,
+      'student_id': student.id,
+      'enrolled_by': client.auth.currentUser?.id,
+    });
+  }
+
+  // ============================================================
+  // CURRENT STUDENT FEE PAYMENTS
+  // ============================================================
+
+  static Future<List<Map<String, dynamic>>> feePaymentsForSemester(
+    StudentProfile student,
+  ) async {
+    if (student.id.trim().isEmpty || student.semester < 1) {
+      throw Exception('Student or semester information is missing.');
+    }
+
+    final result = await client
+        .from('fee_payments')
+        .select(
+          'id, receipt_no, payment_date, fee_semester, fee_type, amount, payment_type, remark',
+        )
+        .eq('student_id', student.id)
+        .eq('fee_semester', student.semester)
+        .order('payment_date', ascending: false)
+        .order('created_at', ascending: false);
+
+    return List<Map<String, dynamic>>.from(
+      result.map((row) => Map<String, dynamic>.from(row)),
+    );
+  }
+
+  // ============================================================
+  // CURRENT STUDENT RESULTS
+  // ============================================================
+
+  static Future<List<Map<String, dynamic>>> results(
+    StudentProfile student,
+  ) async {
+    if (student.id.trim().isEmpty) {
+      throw Exception('Student profile is missing. Please login again.');
+    }
+
+    final result = await client
+        .from('result_grades')
+        .select('''
+          id,
+          student_id,
+          subject_id,
+          course,
+          semester,
+          grade,
+          sgpa,
+          cgpa,
+          syllabus_subjects(subject_name, subject_code)
+        ''')
+        .eq('student_id', student.id)
+        .eq('course', student.course.trim())
+        .eq('semester', student.semester);
+
+    final rows = List<Map<String, dynamic>>.from(
+      result.map((row) => Map<String, dynamic>.from(row)),
+    );
+
+    rows.sort((a, b) => _subjectCode(a).compareTo(_subjectCode(b)));
+
+    return rows;
   }
 
   // ============================================================
   // ONLINE CLASSES
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      onlineClasses(
+  static Future<List<Map<String, dynamic>>> onlineClasses(
     StudentProfile student,
   ) async {
-    final dataRows =
-        await StudentDataService.rows(
+    final dataRows = await StudentDataService.rows(
       'online_classes',
     );
 
     return dataRows.where(
       (row) {
-        final rowCourse =
-            StudentDataService.value(
+        final rowCourse = StudentDataService.value(
           row,
           [
             'course',
@@ -577,8 +745,7 @@ class StudentDataService {
           ],
         );
 
-        final rowSemester =
-            StudentDataService.number(
+        final rowSemester = StudentDataService.number(
           row,
           [
             'semester',
@@ -587,12 +754,8 @@ class StudentDataService {
           0,
         );
 
-        return (rowCourse.isEmpty ||
-                rowCourse ==
-                    student.course) &&
-            (rowSemester == 0 ||
-                rowSemester ==
-                    student.semester);
+        return (rowCourse.isEmpty || rowCourse == student.course) &&
+            (rowSemester == 0 || rowSemester == student.semester);
       },
     ).toList();
   }
@@ -601,8 +764,7 @@ class StudentDataService {
   // ATTENDANCE
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      attendance(
+  static Future<List<Map<String, dynamic>>> attendance(
     StudentProfile student,
   ) async {
     final sessions = await client
@@ -657,36 +819,25 @@ class StudentDataService {
           sessionIds,
         );
 
-    final sessionMap =
-        <String, Map<String, dynamic>>{
+    final sessionMap = <String, Map<String, dynamic>>{
       for (final row in sessions)
-        '${row['id']}':
-            Map<String, dynamic>.from(
+        '${row['id']}': Map<String, dynamic>.from(
           row,
         ),
     };
 
     return records.map(
       (record) {
-        final session =
-            sessionMap[
-                  '${record['session_id']}'
-                ] ??
-                {};
+        final session = sessionMap['${record['session_id']}'] ?? {};
 
         return {
           ...Map<String, dynamic>.from(
             record,
           ),
-          'attendance_date':
-              session[
-                  'attendance_date'],
-          'hour':
-              session['hour'],
-          'course':
-              session['course'],
-          'semester':
-              session['semester'],
+          'attendance_date': session['attendance_date'],
+          'hour': session['hour'],
+          'course': session['course'],
+          'semester': session['semester'],
         };
       },
     ).toList();
@@ -696,13 +847,11 @@ class StudentDataService {
   // ATTENDANCE DATE
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      attendanceForDate(
+  static Future<List<Map<String, dynamic>>> attendanceForDate(
     StudentProfile student,
     DateTime date,
   ) async {
-    final all =
-        await attendance(student);
+    final all = await attendance(student);
 
     final target = DateTime(
       date.year,
@@ -712,15 +861,13 @@ class StudentDataService {
 
     return all.where(
       (row) {
-        final raw =
-            row['attendance_date'];
+        final raw = row['attendance_date'];
 
         if (raw == null) {
           return false;
         }
 
-        final parsed =
-            DateTime.tryParse(
+        final parsed = DateTime.tryParse(
           '$raw',
         );
 
@@ -743,25 +890,21 @@ class StudentDataService {
   // ATTENDANCE MONTH
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      attendanceForMonth(
+  static Future<List<Map<String, dynamic>>> attendanceForMonth(
     StudentProfile student,
     DateTime month,
   ) async {
-    final all =
-        await attendance(student);
+    final all = await attendance(student);
 
     return all.where(
       (row) {
-        final raw =
-            row['attendance_date'];
+        final raw = row['attendance_date'];
 
         if (raw == null) {
           return false;
         }
 
-        final parsed =
-            DateTime.tryParse(
+        final parsed = DateTime.tryParse(
           '$raw',
         );
 
@@ -769,10 +912,7 @@ class StudentDataService {
           return false;
         }
 
-        return parsed.year ==
-                month.year &&
-            parsed.month ==
-                month.month;
+        return parsed.year == month.year && parsed.month == month.month;
       },
     ).toList();
   }
@@ -781,8 +921,7 @@ class StudentDataService {
   // ATTENDANCE SEMESTER
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      attendanceForSemester(
+  static Future<List<Map<String, dynamic>>> attendanceForSemester(
     StudentProfile student,
   ) async {
     return attendance(student);
@@ -792,8 +931,7 @@ class StudentDataService {
   // LIBRARY
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      libraryBooks() async {
+  static Future<List<Map<String, dynamic>>> libraryBooks() async {
     final result = await client
         .from('library_books')
         .select('''
@@ -819,8 +957,7 @@ class StudentDataService {
 
     return List<Map<String, dynamic>>.from(
       result.map(
-        (item) =>
-            Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item),
       ),
     );
   }
@@ -829,8 +966,7 @@ class StudentDataService {
   // LIBRARY RESERVATIONS
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      myLibraryReservations(
+  static Future<List<Map<String, dynamic>>> myLibraryReservations(
     StudentProfile student,
   ) async {
     final result = await client
@@ -863,8 +999,7 @@ class StudentDataService {
 
     return List<Map<String, dynamic>>.from(
       result.map(
-        (item) =>
-            Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item),
       ),
     );
   }
@@ -896,22 +1031,17 @@ class StudentDataService {
   // DOUBTS
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      doubts(
+  static Future<List<Map<String, dynamic>>> doubts(
     StudentProfile student,
   ) async {
-    final result = await client
-        .from('doubts')
-        .select('*')
-        .eq(
+    final result = await client.from('doubts').select('*').eq(
           'student_id',
           student.id,
         );
 
     return List<Map<String, dynamic>>.from(
       result.map(
-        (item) =>
-            Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item),
       ),
     );
   }
@@ -940,22 +1070,17 @@ class StudentDataService {
   // LEAVES
   // ============================================================
 
-  static Future<List<Map<String, dynamic>>>
-      leaves(
+  static Future<List<Map<String, dynamic>>> leaves(
     StudentProfile student,
   ) async {
-    final result = await client
-        .from('leave_requests')
-        .select('*')
-        .eq(
+    final result = await client.from('leave_requests').select('*').eq(
           'student_id',
           student.id,
         );
 
     return List<Map<String, dynamic>>.from(
       result.map(
-        (item) =>
-            Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item),
       ),
     );
   }
@@ -970,8 +1095,7 @@ class StudentDataService {
     required DateTime to,
     required String reason,
   }) async {
-    final studentName =
-        student.name.trim();
+    final studentName = student.name.trim();
 
     if (studentName.isEmpty) {
       throw Exception(
@@ -979,17 +1103,13 @@ class StudentDataService {
       );
     }
 
-    await client
-        .from('leave_requests')
-        .insert({
+    await client.from('leave_requests').insert({
       'student_id': student.id,
       'student_name': studentName,
       'course': student.course,
       'semester': student.semester,
-      'from_date':
-          from.toIso8601String(),
-      'to_date':
-          to.toIso8601String(),
+      'from_date': from.toIso8601String(),
+      'to_date': to.toIso8601String(),
       'reason': reason,
       'status': 'pending',
     });
@@ -1002,13 +1122,11 @@ class StudentDataService {
   static Future<int> presentCount(
     StudentProfile student,
   ) async {
-    final data =
-        await attendance(student);
+    final data = await attendance(student);
 
     return data.where(
       (row) {
-        final status =
-            value(
+        final status = value(
           row,
           ['status'],
         ).toLowerCase();
@@ -1025,8 +1143,7 @@ class StudentDataService {
   static Future<int> attendanceCount(
     StudentProfile student,
   ) async {
-    final data =
-        await attendance(student);
+    final data = await attendance(student);
 
     return data.length;
   }

@@ -26,8 +26,8 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: true
-  image_path: "assets/images/RoyalLogo.png"
+  ios: false
+  image_path: "web/icons/Icon-512.png"
   min_sdk_android: 21
 
 flutter:
