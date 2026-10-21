@@ -819,28 +819,50 @@ class StudentDataService {
           sessionIds,
         );
 
-    final sessionMap = <String, Map<String, dynamic>>{
-      for (final row in sessions)
-        '${row['id']}': Map<String, dynamic>.from(
-          row,
-        ),
+    final recordBySession = <String, Map<String, dynamic>>{
+      for (final row in records)
+        '${row['session_id']}': Map<String, dynamic>.from(row),
     };
 
-    return records.map(
-      (record) {
-        final session = sessionMap['${record['session_id']}'] ?? {};
+    // Keep every scheduled session, including sessions without a saved
+    // student mark. ERP reports use all scheduled dates as the denominator.
+    return sessions.map((rawSession) {
+      final session = Map<String, dynamic>.from(rawSession);
+      final record = recordBySession['${session['id']}'];
 
-        return {
-          ...Map<String, dynamic>.from(
-            record,
-          ),
-          'attendance_date': session['attendance_date'],
-          'hour': session['hour'],
-          'course': session['course'],
-          'semester': session['semester'],
-        };
-      },
-    ).toList();
+      return {
+        ...session,
+        'session_id': session['id'],
+        'student_id': student.id,
+        'status': record?['status'],
+      };
+    }).toList();
+  }
+
+  /// Returns ERP-style working days directly from scheduled sessions for one
+  /// student's course and semester in the selected calendar month.
+  static Future<int> attendanceWorkingDays(
+    StudentProfile student,
+    DateTime month,
+  ) async {
+    final start = '${month.year}-${month.month.toString().padLeft(2, '0')}-01';
+    final lastDay = DateTime(month.year, month.month + 1, 0).day;
+    final end =
+        '${month.year}-${month.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
+
+    final sessions = await client
+        .from('attendance_sessions')
+        .select('attendance_date')
+        .eq('course', student.course)
+        .eq('semester', student.semester)
+        .gte('attendance_date', start)
+        .lte('attendance_date', end);
+
+    return sessions
+        .map((row) => '${row['attendance_date'] ?? ''}')
+        .where((date) => date.isNotEmpty)
+        .toSet()
+        .length;
   }
 
   // ============================================================

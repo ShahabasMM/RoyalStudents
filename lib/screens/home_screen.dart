@@ -319,13 +319,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Royal College',
-                    maxLines: 1,
+                    'Royal College of Arts and Science',
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: AppTheme.navy,
-                      fontSize: 17,
+                      fontSize: 14,
                       fontWeight: FontWeight.w900,
+                      height: 1.1,
                     ),
                   ),
                   const SizedBox(
@@ -574,8 +575,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   _dashboardCard(
-                    title: 'Syllabus',
-                    subtitle: 'Course curriculum',
+                    title: 'Subjects',
+                    subtitle: 'View your course subjects',
                     icon: Icons.menu_book_rounded,
                     iconColor: const Color(
                       0xFF8A3C0A,
@@ -712,7 +713,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: 'Fee Stats',
                     subtitle: 'Course & exam fee status',
                     icon: Icons.receipt_long_rounded,
-                    iconColor: const Color(0xFFFFE8ED),
+                    iconColor: const Color(0xFF551329),
                     backgroundColor: const Color(0xFF741C38),
                     borderColor: const Color(0xFF551329),
                     onTap: () => _open(context, '/fee-stats'),
