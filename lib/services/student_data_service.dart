@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'web_push_notifications_service.dart';
 
 class StudentProfile {
   final String id;
@@ -1175,6 +1176,7 @@ class StudentDataService {
   // ============================================================
 
   static Future<void> signOut() async {
+    await WebPushNotificationsService.unregisterCurrentSubscription();
     await client.auth.signOut();
   }
 }

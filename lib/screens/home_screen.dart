@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_bar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/student_data_service.dart';
+import '../services/web_push_notifications_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -79,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _avatarUrl = avatarUrl;
         _avatarVersion++;
       });
+      await WebPushNotificationsService.initializeForSignedInStudent();
     } catch (e) {
       debugPrint(
         'HOME LOAD ERROR: $e',
@@ -348,13 +350,37 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            IconButton(
-              onPressed: () => _open(context, '/announcements'),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 40,
-                minHeight: 40,
-              ),
+            PopupMenuButton<String>(
+              tooltip: 'Notifications',
+              onSelected: (action) async {
+                if (action == 'announcements') {
+                  _open(context, '/announcements');
+                  return;
+                }
+                final enabled = await WebPushNotificationsService
+                    .enableForSignedInStudent();
+                if (!mounted) return;
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(enabled
+                        ? 'Notifications enabled.'
+                        : 'Could not enable notifications. Check browser permission and push setup.'),
+                  ),
+                );
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'announcements',
+                  child: Text('Announcements'),
+                ),
+                PopupMenuItem(
+                  value: 'enable',
+                  enabled: WebPushNotificationsService.isConfigured,
+                  child: Text(WebPushNotificationsService.isConfigured
+                      ? 'Enable notifications'
+                      : 'Notifications setup pending'),
+                ),
+              ],
               icon: const Icon(
                 Icons.notifications_none_rounded,
                 color: AppTheme.navy,

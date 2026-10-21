@@ -20,6 +20,7 @@ import 'screens/fee_stats_screen.dart';
 import 'theme/app_theme.dart';
 import 'screens/profile_screen.dart';
 import 'screens/splash_screen.dart';
+import 'services/app_navigation.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,13 @@ Future<void> main() async {
   await Supabase.initialize(
     url: 'https://mjkyncdqagdhgfzwqkko.supabase.co',
     publishableKey: 'sb_publishable_8kSWCn8IXEFIfuJ8CKwEiw_uEsLehgP',
+    authOptions: const FlutterAuthClientOptions(
+      // Keep the Supabase session in platform storage across app restarts.
+      // Supabase Flutter defaults this to true, but make the app's intended
+      // login behaviour explicit here.
+      persistSession: true,
+      autoRefreshToken: true,
+    ),
   );
 
   runApp(const RoyalCollegeApp());
@@ -53,6 +61,8 @@ class RoyalCollegeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
+      scaffoldMessengerKey: appScaffoldMessengerKey,
 
       title: 'Royal College Student',
 
@@ -114,7 +124,11 @@ class AuthGate extends StatelessWidget {
         // Check current session
         // ------------------------------------------------------
 
-        final session = supabase.auth.currentSession;
+        // Prefer the latest auth event (including an explicit sign-out) and
+        // use the restored session while the stream is attaching.
+        final session = snapshot.hasData
+            ? snapshot.data!.session
+            : supabase.auth.currentSession;
 
         // ------------------------------------------------------
         // User is logged in
