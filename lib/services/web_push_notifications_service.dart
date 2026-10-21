@@ -12,11 +12,10 @@ import 'push_web_stub.dart'
 class WebPushNotificationsService {
   WebPushNotificationsService._();
 
-  static const _publicVapidKey = String.fromEnvironment(
-    'WEB_PUSH_VAPID_PUBLIC_KEY',
-  );
-
-  static bool get isConfigured => kIsWeb && _publicVapidKey.isNotEmpty;
+  // The public key is fetched from the authenticated Supabase Edge Function at
+  // runtime. That avoids a silent, blank key when Vercel's Flutter build omits
+  // a dart-define. The private key never leaves Supabase.
+  static bool get isConfigured => kIsWeb;
 
   /// Sync only an already-granted browser subscription; never request
   /// notification permission automatically during app startup.
@@ -41,7 +40,16 @@ class WebPushNotificationsService {
     if (user == null) return false;
 
     try {
-      final serialized = await web_push.WebPushBridge.subscribe(_publicVapidKey);
+      final config = await Supabase.instance.client.functions.invoke(
+        'send-student-web-push',
+        body: {'event': 'push.config'},
+      );
+      final publicVapidKey = (config.data as Map?)?['publicVapidKey'] as String?;
+      if (config.status != 200 || publicVapidKey == null || publicVapidKey.isEmpty) {
+        throw StateError('Push setup is incomplete on the server.');
+      }
+
+      final serialized = await web_push.WebPushBridge.subscribe(publicVapidKey);
       if (serialized == null || serialized.isEmpty) return false;
       await _saveSubscription(serialized);
       return true;
