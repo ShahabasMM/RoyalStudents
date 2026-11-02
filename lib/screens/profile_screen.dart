@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../widgets/app_bar.dart';
 import '../services/student_data_service.dart';
+import '../services/web_push_notifications_service.dart';
+import 'notification_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -526,6 +528,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
 
                     _detailsCard(),
+
+                    const SizedBox(
+                      height: 16,
+                    ),
+
+                    _notificationSettingsButton(),
 
                     const SizedBox(
                       height: 22,
@@ -1205,6 +1213,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 BorderRadius.circular(
               13,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // NOTIFICATION SETTINGS BUTTON
+  // ============================================================
+
+  Widget _notificationSettingsButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const NotificationSettingsScreen(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.notifications_outlined, size: 18, color: Color(0xFF8F2020)),
+        label: Text(
+          'Notification Settings',
+          style: GoogleFonts.roboto(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF8F2020),
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF8F2020),
+          side: const BorderSide(color: Color(0xFF8F2020), width: 1.2),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(13),
           ),
         ),
       ),

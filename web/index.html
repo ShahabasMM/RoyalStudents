@@ -44,6 +44,13 @@
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
   <script src="push_bridge.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/royal-push-sw.js', { scope: '/royal-push-scope/' })
+        .then(reg => console.log('Push SW registered', reg.scope))
+        .catch(err => console.error('Push SW registration failed', err));
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

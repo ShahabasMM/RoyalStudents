@@ -14,6 +14,7 @@ class StudentProfile {
   final String status;
   final String avatarUrl;
   final Map<String, dynamic> feeStructure;
+  final String batch; // Academic year / batch (e.g., "2026")
 
   const StudentProfile({
     required this.id,
@@ -26,6 +27,7 @@ class StudentProfile {
     required this.status,
     required this.avatarUrl,
     required this.feeStructure,
+    required this.batch,
   });
 
   factory StudentProfile.fromMap(
@@ -33,6 +35,7 @@ class StudentProfile {
   ) {
     final rawAvatar = row['avatar_url'];
     final rawFeeStructure = row['fee_structure'];
+    final rawBatch = row['academic_year'];
 
     return StudentProfile(
       id: '${row['id'] ?? ''}',
@@ -49,6 +52,7 @@ class StudentProfile {
       feeStructure: rawFeeStructure is Map
           ? Map<String, dynamic>.from(rawFeeStructure)
           : const {},
+      batch: rawBatch == null ? '' : rawBatch.toString().trim(),
     );
   }
 }
@@ -91,7 +95,8 @@ class StudentDataService {
           status,
           auth_user_id,
           avatar_url,
-          fee_structure
+          fee_structure,
+          academic_year
         ''')
         .eq(
           'auth_user_id',
@@ -549,6 +554,10 @@ class StudentDataService {
           'semester',
           student.semester,
         )
+        .eq(
+          'academic_year',
+          student.batch,
+        )
         .order(
           'subject_code',
           ascending: true,
@@ -974,8 +983,8 @@ class StudentDataService {
           'ACTIVE',
         )
         .order(
-          'title',
-          ascending: true,
+          'created_at',
+          ascending: false,
         );
 
     return List<Map<String, dynamic>>.from(
@@ -1003,13 +1012,7 @@ class StudentDataService {
           status,
           created_at,
           updated_at,
-          library_books (
-            id,
-            title,
-            author,
-            book_code,
-            category
-          )
+          library_books (id, title, author, book_code, category)
         ''')
         .eq(
           'student_id',
