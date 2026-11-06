@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/student_data_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bar.dart';
+import '../widgets/semester_switcher.dart';
 
 class InternalMarksScreen extends StatefulWidget {
   const InternalMarksScreen({super.key});
@@ -20,6 +21,9 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
   List<Map<String, dynamic>> marks = [];
   bool loading = true;
   String error = '';
+  int selectedSemester = 1;
+  bool _semesterInitialized = false;
+  int _requestId = 0;
 
   @override
   void initState() {
@@ -27,7 +31,9 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int? semester}) async {
+    final requestId = ++_requestId;
+
     setState(() {
       loading = true;
       error = '';
@@ -35,20 +41,43 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
 
     try {
       final profile = await StudentDataService.currentStudent();
-      final rows = await StudentDataService.internalMarks(profile);
-      if (!mounted) return;
+      final latestSemester = profile.semester.clamp(1, 8).toInt();
+      final effectiveSemester = (_semesterInitialized
+              ? (semester ?? selectedSemester)
+              : latestSemester)
+          .clamp(1, latestSemester)
+          .toInt();
+      final rows = await StudentDataService.internalMarks(
+        profile,
+        semester: effectiveSemester,
+      );
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         student = profile;
         marks = rows;
+        selectedSemester = effectiveSemester;
+        _semesterInitialized = true;
         loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         error = e.toString().replaceFirst('Exception: ', '');
+        marks = [];
         loading = false;
       });
     }
+  }
+
+  void _changeSemester(int semester) {
+    final currentSemester = (student?.semester ?? 1).clamp(1, 8).toInt();
+    if (student == null || semester < 1 || semester > currentSemester) return;
+    if (semester == selectedSemester) return;
+
+    setState(() {
+      selectedSemester = semester;
+    });
+    _load(semester: semester);
   }
 
   double _number(Map<String, dynamic> row, String key) {
@@ -57,8 +86,17 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
     return double.tryParse('$value') ?? 0;
   }
 
-  String _format(double value) =>
-      value == value.roundToDouble() ? value.toInt().toString() : value.toStringAsFixed(2);
+  String _format(double value) => value == value.roundToDouble()
+      ? value.toInt().toString()
+      : value.toStringAsFixed(2);
+
+  double _calculateTotal(Map<String, dynamic> row) {
+    return _number(row, 'assignment_mark') +
+        _number(row, 'seminar_mark') +
+        _number(row, 'test_paper_mark') +
+        _number(row, 'internal_practical_mark') +
+        _number(row, 'open_ended_mark');
+  }
 
   Map<String, dynamic> _subject(Map<String, dynamic> row) {
     final value = row['syllabus_subjects'];
@@ -80,9 +118,17 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w600)),
+          Text(label,
+              style: const TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600)),
           const SizedBox(height: 5),
-          Text(_format(value), style: TextStyle(color: emphasize ? primary : AppTheme.navy, fontSize: 15, fontWeight: FontWeight.w800)),
+          Text(_format(value),
+              style: TextStyle(
+                  color: emphasize ? primary : AppTheme.navy,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800)),
         ],
       ),
     );
@@ -92,8 +138,7 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
     final subject = _subject(row);
     final name = '${subject['subject_name'] ?? 'Subject'}';
     final code = '${subject['subject_code'] ?? ''}'.trim();
-    final score = _number(row, 'mark');
-    final total = _number(row, 'total_mark');
+
     final practical = _number(row, 'internal_practical_mark');
     final openEnded = _number(row, 'open_ended_mark');
 
@@ -104,7 +149,10 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(17),
         border: Border.all(color: border),
-        boxShadow: const [BoxShadow(color: Color(0x090D2850), blurRadius: 14, offset: Offset(0, 5))],
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x090D2850), blurRadius: 14, offset: Offset(0, 5))
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,51 +162,82 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
               Container(
                 width: 42,
                 height: 42,
-                decoration: BoxDecoration(color: primary, borderRadius: BorderRadius.circular(13)),
-                child: const Icon(Icons.menu_book_rounded, color: Colors.white, size: 21),
+                decoration: BoxDecoration(
+                    color: primary, borderRadius: BorderRadius.circular(13)),
+                child: const Icon(Icons.menu_book_rounded,
+                    color: Colors.white, size: 21),
               ),
               const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppTheme.navy, fontSize: 14, fontWeight: FontWeight.w800)),
+                    Text(name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppTheme.navy,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800)),
                     if (code.isNotEmpty) ...[
                       const SizedBox(height: 3),
-                      Text(code, style: const TextStyle(color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w600)),
+                      Text(code,
+                          style: const TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600)),
                     ],
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-                decoration: BoxDecoration(color: primary, borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                decoration: BoxDecoration(
+                    color: primary, borderRadius: BorderRadius.circular(12)),
                 child: Column(
                   children: [
-                    Text(_format(score == 0 ? total : score), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
-                    const Text('TOTAL', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: .7)),
+                    Text(_format(_calculateTotal(row)),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900)),
+                    const Text('TOTAL',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: .7)),
                   ],
                 ),
               ),
             ],
           ),
-          const Padding(padding: EdgeInsets.symmetric(vertical: 13), child: Divider(height: 1, color: border)),
+          const Padding(
+              padding: EdgeInsets.symmetric(vertical: 13),
+              child: Divider(height: 1, color: border)),
           Row(
             children: [
-              Expanded(child: _component('Assignment', _number(row, 'assignment_mark'))),
+              Expanded(
+                  child: _component(
+                      'Assignment', _number(row, 'assignment_mark'))),
               const SizedBox(width: 8),
-              Expanded(child: _component('Seminar', _number(row, 'seminar_mark'))),
+              Expanded(
+                  child: _component('Seminar', _number(row, 'seminar_mark'))),
               const SizedBox(width: 8),
-              Expanded(child: _component('Test', _number(row, 'test_paper_mark'))),
+              Expanded(
+                  child: _component('Test', _number(row, 'test_paper_mark'))),
             ],
           ),
           if (practical > 0 || openEnded > 0) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                if (practical > 0) Expanded(child: _component('Practical', practical)),
+                if (practical > 0)
+                  Expanded(child: _component('Practical', practical)),
                 if (practical > 0 && openEnded > 0) const SizedBox(width: 8),
-                if (openEnded > 0) Expanded(child: _component('Open-ended', openEnded)),
+                if (openEnded > 0)
+                  Expanded(child: _component('Open-ended', openEnded)),
               ],
             ),
           ],
@@ -186,34 +265,94 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
               decoration: BoxDecoration(
                 color: primary,
                 borderRadius: BorderRadius.circular(18),
-                boxShadow: const [BoxShadow(color: Color(0x241456A0), blurRadius: 18, offset: Offset(0, 7))],
+                boxShadow: const [
+                  BoxShadow(
+                      color: Color(0x241456A0),
+                      blurRadius: 18,
+                      offset: Offset(0, 7))
+                ],
               ),
               child: Row(
                 children: [
-                  Container(width: 45, height: 45, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.assessment_rounded, color: primary, size: 23)),
+                  Container(
+                      width: 45,
+                      height: 45,
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14)),
+                      child: const Icon(Icons.assessment_rounded,
+                          color: primary, size: 23)),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Your internal marks', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+                        const Text('Your internal marks',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w900)),
                         const SizedBox(height: 4),
-                        Text(profile == null ? 'Loading your academic details…' : '${profile.course}  •  Semester ${profile.semester}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFFE7F0FA), fontSize: 11, fontWeight: FontWeight.w600)),
+                        Text(
+                            profile == null
+                                ? 'Loading your academic details…'
+                                : '${profile.course}  •  Semester $selectedSemester',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Color(0xFFE7F0FA),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
-                  Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: BoxDecoration(color: const Color(0xFF0D467F), borderRadius: BorderRadius.circular(11)), child: Text('${marks.length} subjects', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))),
+                  Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF0D467F),
+                          borderRadius: BorderRadius.circular(11)),
+                      child: Text('${marks.length} subjects',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800))),
                 ],
               ),
             ),
+            if (profile != null) ...[
+              const SizedBox(height: 13),
+              SemesterSwitcher(
+                selectedSemester: selectedSemester,
+                currentSemester: profile.semester.clamp(1, 8).toInt(),
+                accent: primary,
+                onChanged: _changeSemester,
+              ),
+            ],
             const SizedBox(height: 18),
-            if (error.isNotEmpty) _messageCard(error, Icons.error_outline_rounded, const Color(0xFFB42318), const Color(0xFFFFF2F0)),
+            if (error.isNotEmpty)
+              _messageCard(error, Icons.error_outline_rounded,
+                  const Color(0xFFB42318), const Color(0xFFFFF2F0)),
             if (loading)
-              const Padding(padding: EdgeInsets.all(36), child: Center(child: CircularProgressIndicator(color: primary)))
+              const Padding(
+                  padding: EdgeInsets.all(36),
+                  child:
+                      Center(child: CircularProgressIndicator(color: primary)))
             else if (marks.isEmpty)
-              _messageCard('Internal marks for your current semester have not been added yet.', Icons.menu_book_rounded, primary, Colors.white)
+              _messageCard(
+                  'Internal marks for Semester $selectedSemester have not been added yet.',
+                  Icons.menu_book_rounded,
+                  primary,
+                  Colors.white)
             else ...[
-              const Padding(padding: EdgeInsets.only(bottom: 11), child: Text('SUBJECT BREAKDOWN', style: TextStyle(color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.1))),
+              const Padding(
+                  padding: EdgeInsets.only(bottom: 11),
+                  child: Text('SUBJECT BREAKDOWN',
+                      style: TextStyle(
+                          color: AppTheme.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.1))),
               ...marks.map(_markCard),
             ],
           ],
@@ -226,8 +365,21 @@ class _InternalMarksScreenState extends State<InternalMarksScreen> {
   Widget _messageCard(String message, IconData icon, Color color, Color fill) {
     return Container(
       padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(16), border: Border.all(color: fill == Colors.white ? border : color.withValues(alpha: .18))),
-      child: Row(children: [Icon(icon, color: color, size: 21), const SizedBox(width: 11), Expanded(child: Text(message, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)))]),
+      decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: fill == Colors.white
+                  ? border
+                  : color.withValues(alpha: .18))),
+      child: Row(children: [
+        Icon(icon, color: color, size: 21),
+        const SizedBox(width: 11),
+        Expanded(
+            child: Text(message,
+                style: TextStyle(
+                    color: color, fontSize: 12, fontWeight: FontWeight.w600)))
+      ]),
     );
   }
 }

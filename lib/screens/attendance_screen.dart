@@ -45,6 +45,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   bool loading = true;
 
+  // Semester state
+  int selectedSemester = 1;
+  final int maxSemester = 8;
+  bool _semesterInitialized = false;
+  int? _loadedSemester;
+  int _attendanceRequestId = 0;
+
   String errorMessage = '';
 
   RealtimeChannel? _attendanceChannel;
@@ -287,6 +294,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _loadAttendance({
     bool showLoading = true,
   }) async {
+    final currentSemester = student?.semester;
+    final semester = view == 'Semester'
+        ? selectedSemester
+        : currentSemester ?? selectedSemester;
+
+    await _loadAttendanceForSemester(
+      semester,
+      showLoading: showLoading,
+      selectSemester: view == 'Semester',
+    );
+  }
+
+  // ============================================================
+  // LOAD ATTENDANCE FOR SPECIFIC SEMESTER
+  // ============================================================
+
+  Future<void> _loadAttendanceForSemester(
+    int semester, {
+    bool showLoading = true,
+    bool selectSemester = true,
+  }) async {
+    final requestId = ++_attendanceRequestId;
+
     if (showLoading && mounted) {
       setState(() {
         loading = true;
@@ -296,15 +326,22 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     try {
       final currentStudent = await StudentDataService.currentStudent();
+      final wasInitialized = _semesterInitialized;
+      final effectiveSemester = wasInitialized
+          ? semester
+          : currentStudent.semester.clamp(1, maxSemester).toInt();
+      _semesterInitialized = true;
 
-      final attendance = await StudentDataService.attendance(
+      final attendance = await StudentDataService.attendanceForSemester(
         currentStudent,
+        semester: effectiveSemester,
       );
       int? selectedMonthDays;
       try {
         selectedMonthDays = await StudentDataService.attendanceWorkingDays(
           currentStudent,
           selectedMonth,
+          semester: effectiveSemester,
         );
       } catch (workingDaysError) {
         debugPrint('MONTHLY WORKING DAYS LOAD ERROR: $workingDaysError');
@@ -316,12 +353,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         debugPrint('ATTENDANCE TIMETABLE LOAD ERROR: $timetableError');
       }
 
-      if (!mounted) return;
+      if (!mounted || requestId != _attendanceRequestId) return;
 
       setState(() {
         student = currentStudent;
         allAttendance = attendance;
         timetableRows = timetable;
+        _loadedSemester = effectiveSemester;
+        if (selectSemester || !wasInitialized) {
+          selectedSemester = effectiveSemester;
+        }
         monthlyWorkingDays = selectedMonthDays ??
             _workingDayCount(
               attendance.where((row) {
@@ -342,20 +383,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _startAttendanceRealtime();
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || requestId != _attendanceRequestId) return;
 
       setState(() {
         loading = false;
-
-        errorMessage = e.toString().replaceFirst(
-              'Exception: ',
-              '',
-            );
-
+        errorMessage = e.toString().replaceFirst('Exception: ', '');
         allAttendance = [];
         timetableRows = [];
         dayClasses = [];
-
+        _loadedSemester = null;
         presentCount = 0;
         halfCount = 0;
         absentCount = 0;
@@ -365,9 +401,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         loadingMonthlyWorkingDays = false;
       });
 
-      debugPrint(
-        'ATTENDANCE LOAD ERROR: $e',
-      );
+      debugPrint('ATTENDANCE LOAD ERROR: $e');
     }
   }
 
@@ -763,6 +797,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       final count = await StudentDataService.attendanceWorkingDays(
         currentStudent,
         requestedMonth,
+        semester: _loadedSemester ?? currentStudent.semester,
       );
       if (!mounted ||
           selectedMonth.year != requestedMonth.year ||
@@ -1376,11 +1411,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return Expanded(
       child: GestureDetector(
         onTap: () {
+          if (view == value) return;
+
           setState(() {
             view = value;
           });
 
-          if (value == 'Day') {
+          if (value == 'Semester') {
+            if (_loadedSemester != selectedSemester) {
+              _loadAttendanceForSemester(
+                selectedSemester,
+                selectSemester: false,
+              );
+            }
+            return;
+          }
+
+          final currentSemester = student?.semester ?? selectedSemester;
+          if (_loadedSemester != currentSemester) {
+            _loadAttendanceForSemester(
+              currentSemester,
+              selectSemester: false,
+            );
+          } else if (value == 'Day') {
             _calculateDay();
           }
         },
@@ -1737,6 +1790,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Semester Selector Header
         const Text(
           'Semester Attendance',
           style: TextStyle(
@@ -1747,22 +1801,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          student == null
-              ? 'Current semester'
-              : '${student!.course} • '
-                  'Semester ${student!.semester}',
+          'Select a semester to view attendance',
           style: const TextStyle(
             color: AppTheme.muted,
             fontSize: 10,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
+        _semesterSelector(),
+        const SizedBox(height: 16),
         if (totalCount == 0)
           _emptyCard(
             icon: Icons.school_outlined,
             title: 'No semester attendance',
-            message:
-                'No attendance has been recorded for your current semester yet.',
+            message: 'No attendance has been recorded for this semester yet.',
           )
         else ...[
           _semesterPercentageCard(
@@ -1818,6 +1870,65 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // SEMESTER PERCENTAGE CARD
   // ============================================================
 
+  Widget _semesterSelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.outline),
+      ),
+      child: Row(
+        children: [
+          // Previous semester button
+          IconButton(
+            onPressed: selectedSemester > 1
+                ? () {
+                    final targetSemester = selectedSemester - 1;
+                    setState(() {
+                      selectedSemester = targetSemester;
+                    });
+                    _loadAttendanceForSemester(targetSemester);
+                  }
+                : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+            color: attendancePrimary,
+            disabledColor: AppTheme.muted,
+            tooltip: 'Previous Semester',
+          ),
+          // Selected semester
+          Expanded(
+            child: Text(
+              'Semester $selectedSemester',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppTheme.navy,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          // Next semester button
+          IconButton(
+            onPressed: selectedSemester < maxSemester
+                ? () {
+                    final targetSemester = selectedSemester + 1;
+                    setState(() {
+                      selectedSemester = targetSemester;
+                    });
+                    _loadAttendanceForSemester(targetSemester);
+                  }
+                : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+            color: attendancePrimary,
+            disabledColor: AppTheme.muted,
+            tooltip: 'Next Semester',
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _semesterPercentageCard({
     required int percentage,
   }) {
@@ -1858,9 +1969,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  student == null
-                      ? 'Current semester'
-                      : 'Semester ${student!.semester}',
+                  selectedSemester == student?.semester
+                      ? 'Current semester • Semester $selectedSemester'
+                      : 'Semester $selectedSemester',
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 10,

@@ -575,8 +575,9 @@ class StudentDataService {
   // ============================================================
 
   static Future<List<Map<String, dynamic>>> internalMarks(
-    StudentProfile student,
-  ) async {
+    StudentProfile student, {
+    int? semester,
+  }) async {
     if (student.id.trim().isEmpty) {
       throw Exception('Student profile is missing. Please login again.');
     }
@@ -609,7 +610,7 @@ class StudentDataService {
         ''')
         .eq('student_id', student.id)
         .eq('course', student.course.trim())
-        .eq('semester', student.semester)
+        .eq('semester', semester ?? student.semester)
         .order('created_at', ascending: false);
 
     final rows = List<Map<String, dynamic>>.from(
@@ -701,8 +702,9 @@ class StudentDataService {
   // ============================================================
 
   static Future<List<Map<String, dynamic>>> results(
-    StudentProfile student,
-  ) async {
+    StudentProfile student, {
+    int? semester,
+  }) async {
     if (student.id.trim().isEmpty) {
       throw Exception('Student profile is missing. Please login again.');
     }
@@ -722,7 +724,7 @@ class StudentDataService {
         ''')
         .eq('student_id', student.id)
         .eq('course', student.course.trim())
-        .eq('semester', student.semester);
+        .eq('semester', semester ?? student.semester);
 
     final rows = List<Map<String, dynamic>>.from(
       result.map((row) => Map<String, dynamic>.from(row)),
@@ -853,8 +855,9 @@ class StudentDataService {
   /// student's course and semester in the selected calendar month.
   static Future<int> attendanceWorkingDays(
     StudentProfile student,
-    DateTime month,
-  ) async {
+    DateTime month, {
+    int? semester,
+  }) async {
     final start = '${month.year}-${month.month.toString().padLeft(2, '0')}-01';
     final lastDay = DateTime(month.year, month.month + 1, 0).day;
     final end =
@@ -864,7 +867,7 @@ class StudentDataService {
         .from('attendance_sessions')
         .select('attendance_date')
         .eq('course', student.course)
-        .eq('semester', student.semester)
+        .eq('semester', semester ?? student.semester)
         .gte('attendance_date', start)
         .lte('attendance_date', end);
 
@@ -954,9 +957,77 @@ class StudentDataService {
   // ============================================================
 
   static Future<List<Map<String, dynamic>>> attendanceForSemester(
-    StudentProfile student,
-  ) async {
-    return attendance(student);
+    StudentProfile student, {
+    required int semester,
+  }) async {
+    final sessions = await client
+        .from('attendance_sessions')
+        .select('''
+          id,
+          attendance_date,
+          course,
+          semester,
+          hour
+        ''')
+        .eq(
+          'course',
+          student.course,
+        )
+        .eq(
+          'semester',
+          semester,
+        )
+        .order(
+          'attendance_date',
+          ascending: false,
+        )
+        .order(
+          'hour',
+          ascending: true,
+        );
+
+    if (sessions.isEmpty) {
+      return [];
+    }
+
+    final sessionIds = sessions
+        .map(
+          (row) => row['id'],
+        )
+        .toList();
+
+    final records = await client
+        .from('attendance_records')
+        .select('''
+          session_id,
+          student_id,
+          status
+        ''')
+        .eq(
+          'student_id',
+          student.id,
+        )
+        .inFilter(
+          'session_id',
+          sessionIds,
+        );
+
+    final recordBySession = <String, Map<String, dynamic>>{
+      for (final row in records)
+        '${row['session_id']}': Map<String, dynamic>.from(row),
+    };
+
+    return sessions.map((rawSession) {
+      final session = Map<String, dynamic>.from(rawSession);
+      final record = recordBySession['${session['id']}'];
+
+      return {
+        ...session,
+        'session_id': session['id'],
+        'student_id': student.id,
+        'status': record?['status'],
+      };
+    }).toList();
   }
 
   // ============================================================
